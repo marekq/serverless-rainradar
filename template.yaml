@@ -1,0 +1,56 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: serverless-rainradar
+
+Parameters:
+
+  latlon:
+    Type: String
+    Description: GPS coordinates (default set to The Hague)
+    Default: "52.0811,4.3242"
+
+  apiapptoken:
+    Type: String
+    Description: The app API token for Pushover 
+    Default: "none"
+
+  apiuserkey:
+    Type: String
+    Description: Your API user key for Pushover.net
+    Default: "none"
+
+Resources:
+  checkrain:
+    Type: AWS::Serverless::Function 
+    Properties:
+      CodeUri: checkrain/
+      Handler: app.lambda_handler
+      Runtime: python3.8
+      Timeout: 10
+      MemorySize: 512
+      Tracing: Active
+      Layers: 
+        - !Ref lambdalayer
+      Environment:
+        Variables:
+          latlon: !Ref latlon
+          apiapptoken: !Ref apiapptoken
+          apiuserkey: !Ref apiuserkey
+      Events:
+        ScheduledEventEvery15Min:
+          Type: Schedule
+          Properties:
+            Schedule: rate(15 minutes)        
+    
+  lambdalayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: rainradarlayer
+      Description: python3 dependencies for requests
+      ContentUri: lambda-layer/
+      CompatibleRuntimes:
+        - python3.8
+      LicenseInfo: 'MIT-0'
+      RetentionPolicy: Delete
+    Metadata:
+      BuildMethod: python3.8
