@@ -1,6 +1,10 @@
 from aws_lambda_powertools import Logger, Tracer
-import matplotlib, requests, os
-    
+import requests, os
+import matplotlib.pyplot as plt
+
+from buienradar.buienradar import (get_data, parse_data)
+from buienradar.constants import (CONTENT, RAINCONTENT, SUCCESS)
+
 modules_to_be_patched = ["boto3", "requests"]
 tracer = Tracer(patch_modules = modules_to_be_patched)
 
@@ -8,70 +12,88 @@ logger = Logger()
 tracer = Tracer()
 
 @tracer.capture_method(capture_response = False)
-def send_message(out):
-
-
-    img_url = "http://api.buienradar.nl/image/1.0/RadarMapNL?w=512&h=512"
+def send_message(msg, rainchance):
 
     payload = {
         "token": os.environ['apiapptoken'],
         "user": os.environ['apiuserkey'],
-        "message": 'Rain Alert',
-        "url": img_url
+        "message": msg,
+        "title": str(rainchance) + " percent rain chance"
     }
 
-    # get the image url
-    print('get image url ' + img_url)
-    r = requests.get(img_url)
-
-    # store the image url on /tmp
-    filen = open('/tmp/map.gif', 'wb')
-    filen.write(r.content)
-    filen.close()
-
     # send the message to pushover api
-    p = requests.post("https://api.pushover.net/1/messages.json", data = payload, files = { "attachment" : ("map.gif", open("/tmp/map.gif", "rb"), "image/jpeg") } )
-    print(p.text)
+    p = requests.post("https://api.pushover.net/1/messages.json", data = payload, files = { "attachment" : ("plot.png", open("/tmp/plot.png", "rb"), "image/jpeg") } )
 
 @tracer.capture_method(capture_response = False)
 def get_weather():
 
-    # create out object
-    out = ['']
+    # set sendmsg to false
+    sendmsg = False
 
-    # set sendmsg to false - temp disabled for debugging
-    sendmsg = True
+    # set output message and rainchance to blank
+    msg = ''
+    rainchance = ''
 
     # get lat and lon
     lat, lon = os.environ['latlon'].split(',')
-    url = "https://gpsgadget.buienradar.nl/data/raintext?lat=" + lat + "&lon=" + lon
     
-    print('get rain info url')
+    # minutes to look ahead for precipitation forecast
+    timeframe = 60
 
-    # retrieve rain info
-    response = requests.request("GET", url)
+    # get results
+    result = get_data(latitude = float(lat), longitude = float(lon))
 
-    # split lines in output
-    resp = str(response.text).split('|')
-    
-    # check all retrieved records
-    for line in resp:
+    # if data was retrieved
+    if result.get(SUCCESS):
+        data = result[CONTENT]
+        raindata = result[RAINCONTENT]
 
-        if len(line) != 0:
-            item = line.split('\r\n')
-            out.append(( item[0], item[1] ))
+        result = parse_data(data, raindata, float(lat), float(lon), timeframe)
+        
+        rainchance = result['data']['forecast'][0]['rainchance']
 
-            # if rain value is higher than 0, append and send message
-            if len(item) == int(2) and item[1] != '' and item[1] != '000':
-                sendmsg = True
+        if rainchance > 0:
+            sendmsg = True
+
+            msg = result['data']['forecast'][0]['condition']['exact']
 
     # if rain detected, send message
     if sendmsg:
         print('rain forecasted, sending message')
-        send_message(out)
+
+        gen_graph(lat, lon)
+        send_message(msg, rainchance)
 
     else:
         print('no rain forecasted, quitting')
+
+def gen_graph(lat, lon):
+
+    times = []
+    rainmm = []
+
+    url = "https://gpsgadget.buienradar.nl/data/raintext?lat=" + lat + "&lon=" + lon
+    print(url)
+
+    res = requests.request("GET", url)
+    resp = str(res.text).split('|')
+
+    for line in resp:
+        if len(line) != 0:
+            item = line.split('\r\n')
+
+            if len(item) == int(2) and item[1] != '':
+                times.append(item[0])
+
+                if item[1] != '0':
+                    rainmm.append(item[1].lstrip('0'))
+
+                else:   
+                    rainmm.append(item[1])
+
+    plt.plot(times, rainmm)
+    plt.xticks(rotation = 'vertical')
+    plt.savefig('/tmp/plot.png')
 
 # main handler
 @tracer.capture_lambda_handler
