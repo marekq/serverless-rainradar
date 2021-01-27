@@ -60,7 +60,6 @@ def get_weather():
     # request the forecase from climacell api
     resp = requests.request("GET", url, params = querystring)
     response = json.loads(resp.text)
-    print(response)
 
     # go over interval responses
     for item in response['data']['timelines'][0]['intervals']:
