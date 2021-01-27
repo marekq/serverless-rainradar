@@ -1,5 +1,5 @@
 aws-lambda-powertools
 boto3
-buienradar
 matplotlib
+pytz
 requests
